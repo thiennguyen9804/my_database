@@ -259,7 +259,7 @@ void *get_page(Pager *pager, u_int32_t page_num) {
 }
 
 void cursor_advance(Cursor *cursor) {
-  cursor->num_row++;
+  cursor->row_num++;
   if (cursor->row_num >= cursor->table->num_rows) {
     cursor->end_of_table = true;
   }
@@ -295,6 +295,13 @@ ExecuteResult execute_select(Statement *statement, Table *table) {
   Row row;
   Cursor *cursor = table_start(table);
 
+  while (!(cursor->end_of_table)) {
+    deserialize_row(cursor_value(cursor), &row);
+    print_row(&row);
+    cursor_advance(cursor);
+  }
+
+  free(cursor);
   return EXECUTE_SUCCESS;
 }
 
