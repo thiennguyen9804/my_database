@@ -25,6 +25,25 @@
 #define TABLE_MAX_PAGES 100
 #define ROWS_PER_PAGE (PAGE_SIZE / ROW_SIZE)
 #define TABLE_MAX_ROWS (TABLE_MAX_PAGES * ROWS_PER_PAGE)
+/*
+ * Common Node Header Layout
+ */
+#define NODE_TYPE_SIZE sizeof(u_int8_t)
+#define NODE_TYPE_OFFSET 0
+#define IS_ROOT_SIZE sizeof(u_int8_t)
+#define IS_ROOT_OFFSET NODE_TYPE_SIZE
+#define PARENT_POINTER_SIZE sizeof(u_int32_t)
+#define PARENT_POINTER_OFFSET IS_ROOT_OFFSET + IS_ROOT_SIZE
+#define COMMON_NODE_HEADER_SIZE                                                \
+  NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE
+/*
+ * Leaf Node Header Layout
+ */
+#define LEAF_NODE_NUM_CELLS_SIZE sizeof(u_int32_t)
+#define LEAF_NODE_NUM_CELLS_OFFSET COMMON_NODE_HEADER_SIZE
+#define LEAF_NODE_HEADER_SIZE COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS_SIZE
+
+typedef enum { NODE_INTERNAL, NODE_LEAF } NodeType;
 
 typedef enum {
   META_COMMAND_SUCCESS,
