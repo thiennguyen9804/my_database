@@ -33,25 +33,26 @@
 #define IS_ROOT_SIZE sizeof(u_int8_t)
 #define IS_ROOT_OFFSET NODE_TYPE_SIZE
 #define PARENT_POINTER_SIZE sizeof(u_int32_t)
-#define PARENT_POINTER_OFFSET IS_ROOT_OFFSET + IS_ROOT_SIZE
+#define PARENT_POINTER_OFFSET (IS_ROOT_OFFSET + IS_ROOT_SIZE)
 #define COMMON_NODE_HEADER_SIZE                                                \
-  NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE
+  (NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE)
 /*
  * Leaf Node Header Layout
  */
 #define LEAF_NODE_NUM_CELLS_SIZE sizeof(u_int32_t)
 #define LEAF_NODE_NUM_CELLS_OFFSET COMMON_NODE_HEADER_SIZE
-#define LEAF_NODE_HEADER_SIZE COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS_SIZE
+#define LEAF_NODE_HEADER_SIZE                                                  \
+  (COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS_SIZE)
 /*
  * Leaf Node Body Layout
  */
 #define LEAF_NODE_KEY_SIZE sizeof(u_int32_t)
 #define LEAF_NODE_KEY_OFFSET 0
 #define LEAF_NODE_VALUE_SIZE ROW_SIZE
-#define LEAF_NODE_VALUE_OFFSET LEAF_NODE_KEY_OFFSET + LEAF_NODE_KEY_SIZE
-#define LEAF_NODE_CELL_SIZE LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE
-#define LEAF_NODE_SPACE_FOR_CELLS PAGE_SIZE - LEAF_NODE_HEADER_SIZE
-#define LEAF_NODE_MAX_CELLS LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE
+#define LEAF_NODE_VALUE_OFFSET (LEAF_NODE_KEY_OFFSET + LEAF_NODE_KEY_SIZE)
+#define LEAF_NODE_CELL_SIZE (LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE)
+#define LEAF_NODE_SPACE_FOR_CELLS (PAGE_SIZE - LEAF_NODE_HEADER_SIZE)
+#define LEAF_NODE_MAX_CELLS (LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE)
 
 typedef enum { NODE_INTERNAL, NODE_LEAF } NodeType;
 
@@ -136,7 +137,15 @@ NodeType get_node_type(void *node) {
   return (NodeType)value;
 }
 
-void initialize_leaf_node(void *node) { *leaf_node_num_cells(node) = 0; }
+void set_node_type(void *node, NodeType type) {
+  u_int8_t value = type;
+  *((u_int8_t *)(node + NODE_TYPE_OFFSET)) = value;
+}
+
+void initialize_leaf_node(void *node) {
+  set_node_type(node, NODE_LEAF);
+  *leaf_node_num_cells(node) = 0;
+}
 
 void serialize_row(Row *source, void *destination) {
   memcpy(destination + ID_OFFSET, &(source->id), ID_SIZE);
@@ -360,11 +369,14 @@ void leaf_node_insert(Cursor *cursor, u_int32_t key, Row *value) {
   void *node = get_page(cursor->table->pager, cursor->page_num);
   u_int32_t num_cells = *leaf_node_num_cells(node);
   if (num_cells >= LEAF_NODE_MAX_CELLS) {
+    // Node full
+    printf("[DEBUG num_cells]: %d", num_cells);
     printf("Need to implement splitting a leaf node.\n");
     exit(EXIT_FAILURE);
   }
 
   if (cursor->cell_num < num_cells) {
+    // Make room for new cell
     for (u_int32_t i = num_cells; i > cursor->cell_num; i--) {
       memcpy(leaf_node_cell(node, i), leaf_node_cell(node, i - 1),
              LEAF_NODE_CELL_SIZE);

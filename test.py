@@ -7,7 +7,7 @@ def run_script(commands: list[str]) -> list[str]:
     Trả về list các dòng output (đã strip).
     """
     process = subprocess.Popen(
-        ["./main"],
+        ["./db", "mydb.db"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         # stderr=subprocess.PIPE,
@@ -38,7 +38,7 @@ def test_inserts_and_retrieves_a_row():
 
     assert outputs == expected, (
         f"Output không khớp mong đợi.\n"
-        f"Thực tế:   {output}\n"
+        f"Thực tế:   {outputs}\n"
         f"Mong đợi: {expected}"
     )
 
@@ -104,4 +104,28 @@ def test_prints_an_error_message_if_id_is_negative():
         f"Mong đợi: {expected}"
     )
 
-
+@m.it("prints constants")
+def test_prints_constants():
+    commands = [
+        ".constants",
+        ".exit",
+    ]
+    
+    outputs = run_script(commands)
+    
+    expected = [
+        "db > Constants:",
+        "ROW_SIZE: 293",
+        "COMMON_NODE_HEADER_SIZE: 6",
+        "LEAF_NODE_HEADER_SIZE: 10",
+        "LEAF_NODE_CELL_SIZE: 297",
+        "LEAF_NODE_SPACE_FOR_CELLS: 4086",
+        "LEAF_NODE_MAX_CELLS: 13",
+        "db >",
+    ]
+    
+    assert outputs == expected, (
+        f"Output không khớp mong đợi.\n"
+        f"Thực tế:   {outputs}\n"
+        f"Mong đợi: {expected}"
+    )
