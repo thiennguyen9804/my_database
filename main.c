@@ -21,6 +21,7 @@
 #define EMAIL_OFFSET (USERNAME_OFFSET + USERNAME_SIZE)
 #define ROW_SIZE (ID_SIZE + USERNAME_SIZE + EMAIL_SIZE)
 
+// Số byte của 1 page
 #define PAGE_SIZE 4096
 #define TABLE_MAX_PAGES 100
 #define ROWS_PER_PAGE (PAGE_SIZE / ROW_SIZE)
@@ -56,6 +57,26 @@
 #define LEAF_NODE_RIGHT_SPLIT_COUNT (LEAF_NODE_MAX_CELLS + 1) / 2
 #define LEAF_NODE_LEFT_SPLIT_COUNT                                             \
   (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT
+
+/*
+ * Internal Node Header Layout
+ */
+#define INTERNAL_NODE_NUM_KEYS_SIZE sizeof(u_int32_t)
+#define INTERNAL_NODE_NUM_KEYS_OFFSET COMMON_NODE_HEADER_SIZE
+#define INTERNAL_NODE_RIGHT_CHILD_SIZE sizeof(u_int32_t)
+#define INTERNAL_NODE_RIGHT_CHILD_OFFSET                                       \
+  (INTERNAL_NODE_NUM_KEYS_OFFSET + INTERNAL_NODE_NUM_KEYS_SIZE)
+#define INTERNAL_NODE_HEADER_SIZE                                              \
+  (COMMON_NODE_HEADER_SIZE + INTERNAL_NODE_NUM_KEYS_SIZE +                     \
+   INTERNAL_NODE_RIGHT_CHILD_SIZE)
+
+/*
+ * Internal Node Body Layout
+ */
+#define INTERNAL_NODE_KEY_SIZE sizeof(uint32_t)
+#define INTERNAL_NODE_CHILD_SIZE sizeof(uint32_t)
+#define INTERNAL_NODE_CELL_SIZE                                                \
+  (INTERNAL_NODE_CHILD_SIZE + INTERNAL_NODE_KEY_SIZE)
 
 typedef enum { NODE_INTERNAL, NODE_LEAF } NodeType;
 
@@ -119,6 +140,19 @@ typedef struct {
   Row row_to_insert;
 } Statement;
 
+u_int32_t *internal_node_num_keys(void *node) {
+  return node + INTERNAL_NODE_NUM_KEYS_OFFSET;
+}
+
+u_int32_t *internal_node_right_child(void *node) {
+  return node + INTERNAL_NODE_RIGHT_CHILD_OFFSET;
+}
+
+u_int32_t *internal_node_cell(void *node, u_int32_t cell_num) {
+  return node + INTERNAL_NODE_HEADER_SIZE + cell_num * INTERNAL_NODE_CELL_SIZE;
+}
+
+// số lượng cell (1 cell lưu 1 row) trong leaf
 u_int32_t *leaf_node_num_cells(void *node) {
   return node + LEAF_NODE_NUM_CELLS_OFFSET;
 }
@@ -145,12 +179,15 @@ void set_node_type(void *node, NodeType type) {
   *((u_int8_t *)(node + NODE_TYPE_OFFSET)) = value;
 }
 
-bool is_node_root(void* node) {
-  u_int8_t value = *((u_int8_t*)node + IS_ROOT_OFFSET);
+bool is_node_root(void *node) {
+  u_int8_t value = *((u_int8_t *)node + IS_ROOT_OFFSET);
   return (bool)value;
 }
 
-
+void set_node_root(void *node, bool is_root) {
+  u_int8_t value = is_root;
+  *((u_int8_t *)node + IS_ROOT_OFFSET) = value;
+}
 
 void initialize_leaf_node(void *node) {
   set_node_type(node, NODE_LEAF);
@@ -209,7 +246,10 @@ void *get_page(Pager *pager, u_int32_t page_num) {
     }
 
     if (page_num <= num_pages) {
+      // Đặt con trỏ ở đầu file, đi tới byte bắt đầu từ page_num * PAGE_SIZE
       lseek(pager->file_descriptor, page_num * PAGE_SIZE, SEEK_SET);
+      // Đọc file sau khi đã dời con trỏ, kích thức là PAGE_SIZE (đọc đủ 1 page)
+      // và lưu vào con trỏ page
       ssize_t bytes_read = read(pager->file_descriptor, page, PAGE_SIZE);
       if (bytes_read == -1) {
         printf("Error reading file: %d\n", errno);
@@ -364,12 +404,26 @@ void print_row(Row *row) {
   printf("(%d, %s, %s)\n", row->id, row->username, row->email);
 }
 
-u_int32_t get_unused_page_num(Pager* pager) {
-  return pager->num_pages;
-}
+u_int32_t get_unused_page_num(Pager *pager) { return pager->num_pages; }
 
-void create_new_root(Table* table, u_int32_t right_child_page_num) {
-  
+void create_new_root(Table *table, u_int32_t right_child_page_num) {
+  /*
+  Handle splitting the root.
+  Old root copied to new page, becomes left child.
+  Address of right child passed in.
+  Re-initialize root page to contain the new root node.
+  New root node points to two children.
+  */
+  void *root = get_page(table->pager, table->root_page_num);
+  void *right_child = get_page(table->pager, right_child_page_num);
+  u_int32_t left_child_page_num = get_unused_page_num(table->pager);
+  void *left_child = get_page(table->pager, left_child_page_num);
+
+  /* Left child has data copied from old root */
+  memcpy(root, left_child, PAGE_SIZE);
+  set_node_root(left_child, false);
+  initialize_internal_node(root);
+  set_node_root(root, true);
 }
 
 void leaf_node_split_and_insert(Cursor *cursor, u_int32_t key, Row *value) {
@@ -383,19 +437,19 @@ void leaf_node_split_and_insert(Cursor *cursor, u_int32_t key, Row *value) {
   u_int32_t new_page_num = get_unused_page_num(cursor->table->pager);
   void *new_node = get_page(cursor->table->pager, new_page_num);
   initialize_leaf_node(new_node);
-  for(u_int32_t i = LEAF_NODE_MAX_CELLS; i >= 0; i--) {
-    void* destination_node;
-    if(i >= LEAF_NODE_LEFT_SPLIT_COUNT) {
+  for (u_int32_t i = LEAF_NODE_MAX_CELLS; i >= 0; i--) {
+    void *destination_node;
+    if (i >= LEAF_NODE_LEFT_SPLIT_COUNT) {
       destination_node = new_node;
     } else {
       destination_node = old_node;
     }
     u_int32_t index_within_node = i % LEAF_NODE_LEFT_SPLIT_COUNT;
-    void* destination = leaf_node_cell(new_node, index_within_node);
+    void *destination = leaf_node_cell(new_node, index_within_node);
 
-    if(i == cursor->cell_num) {
+    if (i == cursor->cell_num) {
       serialize_row(value, destination);
-    } else if(i > cursor->cell_num) {
+    } else if (i > cursor->cell_num) {
       memcpy(destination, leaf_node_cell(old_node, i - 1), LEAF_NODE_CELL_SIZE);
     } else {
       memcpy(destination, leaf_node_cell(old_node, i), LEAF_NODE_CELL_SIZE);
@@ -405,7 +459,7 @@ void leaf_node_split_and_insert(Cursor *cursor, u_int32_t key, Row *value) {
   *(leaf_node_num_cells(old_node)) = LEAF_NODE_LEFT_SPLIT_COUNT;
   *(leaf_node_num_cells(new_node)) = LEAF_NODE_RIGHT_SPLIT_COUNT;
 
-  if(is_node_root(old_node)) {
+  if (is_node_root(old_node)) {
     return create_new_root(cursor->table, new_page_num);
   } else {
     printf("Need to implement updating parent after split\n");
@@ -548,17 +602,32 @@ void read_input(InputBuffer *input_buffer) {
 }
 
 Pager *pager_open(const char *filename) {
+  /*
+    flags:
+      O_RDWR: Mở file với quyền đọc và ghi
+      O_CREAT:
+        Nếu file chưa tồn tại → tạo mới
+        Nếu file đã tồn tại → chỉ mở, không xóa nội dung
+    modes:
+      S_IRUSR: User (owner) được đọc
+      S_IWUSR: User (owner) được ghi
+   */
   int fd = open(filename, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
 
   if (fd == -1) {
     printf("Unable to open file\n");
     exit(EXIT_FAILURE);
   }
-
+  /*
+   * Đặt con trỏ ở cuối file (SEEK_END) và không di chuyển byte nào (offset = 0)
+   * Giá trị trả về là số byte tính từ đầu file => file_length tính bằng byte
+   * */
   off_t file_length = lseek(fd, 0, SEEK_END);
   Pager *pager = malloc(sizeof(Pager));
   pager->file_descriptor = fd;
   pager->file_length = file_length;
+
+  // Số page của file
   pager->num_pages = (file_length / PAGE_SIZE);
   if (file_length % PAGE_SIZE != 0) {
     printf("Db is not a whole number of pages. Corrupt file.\n");
@@ -575,6 +644,8 @@ Table *db_open(const char *filename) {
   Pager *pager = pager_open(filename);
   Table *table = malloc(sizeof(Table));
   table->pager = pager;
+
+  // page của node root
   table->root_page_num = 0;
   if (pager->num_pages == 0) {
     void *root_node = get_page(pager, 0);
