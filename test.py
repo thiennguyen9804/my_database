@@ -1,4 +1,4 @@
-import subprocess 
+import subprocess
 from pytest import mark as m
 
 def run_script(commands: list[str]) -> list[str]:
@@ -129,3 +129,46 @@ def test_prints_constants():
         f"Thực tế:   {outputs}\n"
         f"Mong đợi: {expected}"
     )
+
+
+
+@m.it("allows printing out the structure of a 3-leaf-node btree")
+def test_allows_printing_out_the_structure_of_a_three_leaf_node_btree():
+    commands = [
+            f"insert {i} user{i} person{i}@example.com" for i in range(1, 15)
+    ]
+    commands.append(".btree")
+    commands.append("insert 15 user15 person15@example.com")
+    commands.append(".exit")
+    result = run_script(commands)
+    # print(result)
+    expected = [
+      "db > Tree:",
+      "- internal (size 1)",
+      "  - leaf (size 7)",
+      "    - 1",
+      "    - 2",
+      "    - 3",
+      "    - 4",
+      "    - 5",
+      "    - 6",
+      "    - 7",
+      "  - key 7",
+      "  - leaf (size 7)",
+      "    - 8",
+      "    - 9",
+      "    - 10",
+      "    - 11",
+      "    - 12",
+      "    - 13",
+      "    - 14",
+      "db > Need to implement searching an internal node",
+    ]
+
+    assert result == expected, (
+        f"Output không khớp mong đợi.\n"
+        f"Thực tế:   {result}\n"
+        f"Mong đợi: {expected}"
+    )
+
+
