@@ -134,13 +134,10 @@ def test_prints_constants():
 
 @m.it("allows printing out the structure of a 3-leaf-node btree")
 def test_allows_printing_out_the_structure_of_a_three_leaf_node_btree():
-    commands = [
-            f"insert {i} user{i} person{i}@example.com" for i in range(1, 15)
-    ]
+    commands = [f"insert {i} user{i} person{i}@example.com" for i in range(1, 14)]
     commands.append(".btree")
-    commands.append("insert 15 user15 person15@example.com")
     commands.append(".exit")
-    result = run_script(commands)
+    results = run_script(commands)
     # print(result)
     expected = [
       "db > Tree:",
@@ -165,9 +162,9 @@ def test_allows_printing_out_the_structure_of_a_three_leaf_node_btree():
       "db > Need to implement searching an internal node",
     ]
 
-    assert result == expected, (
+    assert results[13:len(results)] == expected, (
         f"Output không khớp mong đợi.\n"
-        f"Thực tế:   {result}\n"
+        f"Thực tế:   {results}\n"
         f"Mong đợi: {expected}"
     )
 

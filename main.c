@@ -54,9 +54,9 @@
 #define LEAF_NODE_CELL_SIZE (LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE)
 #define LEAF_NODE_SPACE_FOR_CELLS (PAGE_SIZE - LEAF_NODE_HEADER_SIZE)
 #define LEAF_NODE_MAX_CELLS (LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE)
-#define LEAF_NODE_RIGHT_SPLIT_COUNT (LEAF_NODE_MAX_CELLS + 1) / 2
+#define LEAF_NODE_RIGHT_SPLIT_COUNT ((LEAF_NODE_MAX_CELLS + 1) / 2)
 #define LEAF_NODE_LEFT_SPLIT_COUNT                                             \
-  (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT
+  ((LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT)
 
 /*
  * Internal Node Header Layout
@@ -156,7 +156,7 @@ u_int32_t *internal_node_cell(void *node, u_int32_t cell_num) {
 u_int32_t *internal_node_child(void *node, u_int32_t child_num) {
   u_int32_t num_keys = *internal_node_num_keys(node);
   if (child_num > num_keys) {
-    printf("Tried to access child_num %d > num_keys %d", child_num, num_keys);
+    printf("Tried to access child_num %d > num_keys %d\n", child_num, num_keys);
     exit(EXIT_FAILURE);
   } else if (child_num == num_keys) {
     return internal_node_right_child(node);
@@ -198,13 +198,13 @@ void set_node_type(void *node, NodeType type) {
 }
 
 bool is_node_root(void *node) {
-  u_int8_t value = *((u_int8_t *)node + IS_ROOT_OFFSET);
+  u_int8_t value = *((u_int8_t *)(node + IS_ROOT_OFFSET));
   return (bool)value;
 }
 
 void set_node_root(void *node, bool is_root) {
   u_int8_t value = is_root;
-  *((u_int8_t *)node + IS_ROOT_OFFSET) = value;
+  *((u_int8_t *)(node + IS_ROOT_OFFSET)) = value;
 }
 
 u_int32_t get_node_max_key(void *node) {
@@ -480,10 +480,16 @@ void create_new_root(Table *table, u_int32_t right_child_page_num) {
   void *left_child = get_page(table->pager, left_child_page_num);
 
   /* Left child has data copied from old root */
-  memcpy(root, left_child, PAGE_SIZE);
+  memcpy(left_child, root, PAGE_SIZE);
   set_node_root(left_child, false);
+  // Root node is new internal node with one key and two children
   initialize_internal_node(root);
   set_node_root(root, true);
+  *internal_node_num_keys(root) = 1;
+  *internal_node_child(root, 0) = left_child_page_num;
+  u_int32_t left_child_max_key = get_node_max_key(left_child);
+  *internal_node_key(root, 0) = left_child_max_key;
+  *internal_node_right_child(root) = right_child_page_num;
 }
 
 void leaf_node_split_and_insert(Cursor *cursor, u_int32_t key, Row *value) {
@@ -497,7 +503,7 @@ void leaf_node_split_and_insert(Cursor *cursor, u_int32_t key, Row *value) {
   u_int32_t new_page_num = get_unused_page_num(cursor->table->pager);
   void *new_node = get_page(cursor->table->pager, new_page_num);
   initialize_leaf_node(new_node);
-  for (u_int32_t i = LEAF_NODE_MAX_CELLS; i >= 0; i--) {
+  for (int32_t i = LEAF_NODE_MAX_CELLS; i >= 0; i--) {
     void *destination_node;
     if (i >= LEAF_NODE_LEFT_SPLIT_COUNT) {
       destination_node = new_node;
@@ -505,7 +511,7 @@ void leaf_node_split_and_insert(Cursor *cursor, u_int32_t key, Row *value) {
       destination_node = old_node;
     }
     u_int32_t index_within_node = i % LEAF_NODE_LEFT_SPLIT_COUNT;
-    void *destination = leaf_node_cell(new_node, index_within_node);
+    void *destination = leaf_node_cell(destination_node, index_within_node);
 
     if (i == cursor->cell_num) {
       serialize_row(value, destination);
@@ -614,18 +620,13 @@ Cursor *table_find(Table *table, u_int32_t key) {
   if (get_node_type(root_node) == NODE_LEAF) {
     return leaf_node_find(table, root_page_num, key);
   } else {
-    printf("Need to implement searching an internal node\n");
-    exit(EXIT_FAILURE);
+    return internal_node_find(table, root_page_num, key);
   }
 }
 
 ExecuteResult execute_insert(Statement *statement, Table *table) {
   void *node = get_page(table->pager, table->root_page_num);
   u_int32_t num_cells = (*leaf_node_num_cells(node));
-
-  // if (num_cells >= LEAF_NODE_MAX_CELLS) {
-  //   return EXECUTE_TABLE_FULL;
-  // }
 
   Row *row_to_insert = &(statement->row_to_insert);
 
@@ -733,7 +734,6 @@ Table *db_open(const char *filename) {
   table->pager = pager;
 
   // page của node root
-  table->root_page_num = 0;
   if (pager->num_pages == 0) {
     void *root_node = get_page(pager, 0);
     initialize_leaf_node(root_node);
